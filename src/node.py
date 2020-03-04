@@ -133,7 +133,7 @@ class Peer(thd.Thread):
     def _initiate_rpc_server(self):
         host_ip = socket.gethostbyname(socket.gethostname())
         server = SimpleXMLRPCServer((host_ip, PORT_START_NUM + self.peer_id),
-                    requestHandler=LogHandler, allow_none=True, logRequests=True)
+                    allow_none=True, logRequests=True)
 
         server.register_function(self.lookup)
         server.register_function(self.reply)
