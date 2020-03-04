@@ -1,5 +1,5 @@
 import xmlrpc
-from xmlrpc.server import SimpleXMLRPCServer
+from xmlrpc.server import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 
 # import json
 import socket
@@ -9,9 +9,47 @@ from threading import Lock
 import random
 import time
 
+import logging
+
 from define import *
 
+# logging.basicConfig(level=logging.INFO)
 PRINT_LOCK = Lock()
+"""
+logger  = logging.getLogger('xmlrpcserver')
+handler = logging.FileHandler('xmlrpcserver-%s.log' %
+    time.strftime("%Y%m%d-%H-%M-%S", time.localtime()), mode='w')
+formatter = logging.Formatter("%(asctime)s  %(levelname)s  %(message)s")
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+
+class LogHandler(SimpleXMLRPCRequestHandler):
+    def do_POST(self):
+        try:
+            peer_ip, port = self.client_address
+            # Log client IP and Port
+            logger.info('XMLRPCServer receives a request from client: %s:%s' % (peer_ip, port))
+            data = self.rfile.read(int(self.headers["content-length"]))
+            # Log client request
+            logger.info('Client request: \n%s\n' % data)
+            response = self.server._marshaled_dispatch(data, getattr(self, '_dispatch', None))
+        except: # This should only happen if the module is buggy
+            # internal error, report as HTTP server error
+            self.send_response(500)
+            self.end_headers()
+        else:
+            # got a valid XML RPC response
+            self.send_response(200)
+            self.send_header("Content-type", "text/xml")
+            self.send_header("Content-length", str(len(response)))
+            self.end_headers()
+            self.wfile.write(response)
+
+            # shut down the connection
+            self.wfile.flush()
+            self.connection.shutdown(1)
+"""
 
 class Peer(thd.Thread):
     def __init__(self, peer_id, role, neighbors):
@@ -53,8 +91,8 @@ class Peer(thd.Thread):
         
             self.candidate_sellers = []
             for neighbor_id in self.neighbors:
-                addr = ADDR % (PORT_START_NUM + neighbor_id)
-                proxy = self._get_proxy(addr)
+                # addr = ADDR % (PORT_START_NUM + neighbor_id)
+                proxy = self._get_proxy(neighbor_id)
                 if proxy != None:
                     proxy.lookup(self.target, CLIENT_TIMEOUT, '%d' % self.peer_id)
 
@@ -65,8 +103,8 @@ class Peer(thd.Thread):
             
             # transaction
             for seller_id in self.candidate_sellers:
-                addr = ADDR % (PORT_START_NUM + seller_id)
-                proxy = self._get_proxy(addr)
+                # addr = ADDR % (PORT_START_NUM + seller_id)
+                proxy = self._get_proxy(seller_id)
                 # proxy = xmlrpc.client.ServerProxy(addr)
                 if proxy != None and proxy.buy(self.target):
                     with PRINT_LOCK:
@@ -93,8 +131,9 @@ class Peer(thd.Thread):
 
 
     def _initiate_rpc_server(self):
-        server = SimpleXMLRPCServer(("localhost", PORT_START_NUM + self.peer_id),
-                    allow_none=True, logRequests=False)
+        host_ip = socket.gethostbyname(socket.gethostname())
+        server = SimpleXMLRPCServer((host_ip, PORT_START_NUM + self.peer_id),
+                    requestHandler=LogHandler, allow_none=True, logRequests=True)
 
         server.register_function(self.lookup)
         server.register_function(self.reply)
@@ -107,9 +146,14 @@ class Peer(thd.Thread):
         server.serve_forever()
 
     
-    def _get_proxy(self, addr):
+    def _get_proxy(self, peer_id):
+        if peer_id in MASTER_PEER_ID:
+            addr = MASTER_ADDR % (PORT_START_NUM + peer_id)
+        else:
+            addr = SLAVE_ADDR % (PORT_START_NUM + peer_id)
+
         proxy = xmlrpc.client.ServerProxy(addr)
-        
+
         try:
             proxy.test()   # call a fictive method.
         except xmlrpc.client.Fault:
@@ -119,13 +163,13 @@ class Peer(thd.Thread):
             
         return proxy
 
-    def _lookup(self, addr, product_name, hopcount, path):
-        proxy = self._get_proxy(addr)
+    def _lookup(self, peer_id, product_name, hopcount, path):
+        proxy = self._get_proxy(peer_id)
         if proxy != None:
             proxy.lookup(product_name, hopcount, path)
 
-    def _reply(self, addr, seller_id, new_path):
-        proxy = self._get_proxy(addr)
+    def _reply(self, peer_id, seller_id, new_path):
+        proxy = self._get_proxy(peer_id)
         if proxy != None:
             proxy.reply(seller_id, new_path)
   
@@ -138,9 +182,9 @@ class Peer(thd.Thread):
             from_neighbor_id = int(footprints[0])
             new_path = '' if len(footprints) == 1 else "-".join(footprints[1:])
 
-            addr = ADDR % (PORT_START_NUM + from_neighbor_id)
+            # addr = ADDR % (PORT_START_NUM + from_neighbor_id)
             # proxy = xmlrpc.client.ServerProxy(addr)
-            proxy = self._get_proxy(addr)
+            proxy = self._get_proxy(from_neighbor_id)
             if proxy != None:
                 with PRINT_LOCK:
                     print("Peer %d has %s!, reply to %d" % (self.peer_id,
@@ -158,9 +202,10 @@ class Peer(thd.Thread):
         # propagate the request
         for neighbor_id in self.neighbors:
             if str(neighbor_id) not in footprints:
-                addr = ADDR % (PORT_START_NUM + neighbor_id)
+                # addr = ADDR % (PORT_START_NUM + neighbor_id)
                 new_path = "%d-%s" % (self.peer_id, path)
-                thread = thd.Thread(target=self._lookup, args=(addr, product_name, hopcount-1, new_path))
+                thread = thd.Thread(target=self._lookup,
+                    args=(neighbor_id, product_name, hopcount-1, new_path))
                 thread.start()
                 with PRINT_LOCK:
                     print("[LOOKUP propagate] Peer %d: %d <- %s" % (self.peer_id, neighbor_id, new_path))
@@ -180,9 +225,9 @@ class Peer(thd.Thread):
         footprints = path.split('-')
         next_neighbor_id = int(footprints[0])
         new_path = '' if len(footprints) == 1 else "-".join(footprints[1:])
-        addr = ADDR % (PORT_START_NUM + next_neighbor_id)
+        # addr = ADDR % (PORT_START_NUM + next_neighbor_id)
 
-        thread = thd.Thread(target=self._reply, args=(addr, seller_id, new_path))
+        thread = thd.Thread(target=self._reply, args=(next_neighbor_id, seller_id, new_path))
         thread.start()
 
         with PRINT_LOCK:
@@ -240,17 +285,14 @@ def generate_neighbor_map():
     return neighbor_map
 
 
-if __name__ == "__main__":
+def one_machine_scenario():
     # Use one main thread to generate other threads that run as peers
-    peers = []
-
     if DEBUG:
         neighbor_map = test_map
         PEER_NUM = len(neighbor_map)
         role = test_role
     else:
         neighbor_map = generate_neighbor_map()
-
         buyer_num  = 0
         seller_num = 0
         role = []
@@ -277,6 +319,7 @@ if __name__ == "__main__":
             print(row)
         print('\n')
 
+    peers = []
     for i in range(PEER_NUM):
         neighbors = []
         for j in range(PEER_NUM):
@@ -285,6 +328,41 @@ if __name__ == "__main__":
 
         peers.append(Peer(i, role[i], neighbors))
         peers[i].start()
+
+    # avoid closing main thread
+    for peer in peers:
+        peer.join()
+
+
+if __name__ == "__main__":
+    # 1. For the scenario that test on a single machine
+    # one_machine_scenario()
+
+    # 2. For the scenario that test on two machines
+    # only support self-defined neighbor map
+    neighbor_map = test_map
+    PEER_NUM = len(neighbor_map)
+    role = test_role
+    host_ip = socket.gethostbyname(socket.gethostname())
+
+    with PRINT_LOCK:
+        print('Node is running on: %s\n' % host_ip)
+        print('\\\\\\\\\\  *NEIGHBOR MAP*  /////')
+        for row in neighbor_map:
+            print(row)
+        print('\n')
+
+    curr_machine_peer_id = MASTER_PEER_ID if host_ip == MASTER_IP else SLAVE_PEER_ID
+    peers = []
+    for peer_id in curr_machine_peer_id:
+        neighbors = []
+        for j in range(PEER_NUM):
+            if neighbor_map[peer_id][j]:
+                neighbors.append(j)
+
+        peer = Peer(peer_id, role[peer_id], neighbors)
+        peers.append(peer)
+        peer.start()
 
     # avoid closing main thread
     for peer in peers:
