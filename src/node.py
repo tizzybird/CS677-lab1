@@ -9,32 +9,9 @@ from threading import Lock
 import random
 import time
 
-DEBUG = False
+from define import *
 
-BUYER  = 1
-SELLER = 2
-BOTH   = 3
-
-FISH = 11
-SALT = 12
-BOAR = 13
-MAX_ITEM_NUMBER = 10
-TO_ITEM_NAME = {
-    FISH: 'fish',
-    SALT: 'salt',
-    BOAR: 'boar'
-}
-
-ADDR = "http://localhost:%d/"
-PORT_START_NUM = 10070
-
-CLIENT_TIMEOUT = 8
-
-PEER_NUM = 6
-MAX_BUYER_NUM  = int(PEER_NUM/2) + 1
-MAX_SELLER_NUM = int(PEER_NUM/2) + 1
-
-PRINT_LOCK = False or Lock()
+PRINT_LOCK = Lock()
 
 class Peer(thd.Thread):
     def __init__(self, peer_id, role, neighbors):
@@ -62,9 +39,6 @@ class Peer(thd.Thread):
 
 
     def _initiate_buyer(self):
-        # with PRINT_LOCK:
-        #     print("[INIT] Peer %d is a buyer" % self.peer_id)
-
         while True:
             time.sleep(3)
             # generate a buy request
@@ -80,7 +54,6 @@ class Peer(thd.Thread):
             self.candidate_sellers = []
             for neighbor_id in self.neighbors:
                 addr = ADDR % (PORT_START_NUM + neighbor_id)
-                # proxy = xmlrpc.client.ServerProxy(addr)
                 proxy = self._get_proxy(addr)
                 if proxy != None:
                     proxy.lookup(self.target, CLIENT_TIMEOUT, '%d' % self.peer_id)
@@ -97,14 +70,11 @@ class Peer(thd.Thread):
                 # proxy = xmlrpc.client.ServerProxy(addr)
                 if proxy != None and proxy.buy(self.target):
                     with PRINT_LOCK:
-                        print("[SUCCESS] Peer %d buys %s from seller %d" % (self.peer_id, TO_ITEM_NAME[self.target], seller_id))
+                        print("[SUCCESS] Peer %d buys %s from peer %d" % (self.peer_id, TO_ITEM_NAME[self.target], seller_id))
                     break
 
 
     def _initiate_seller(self):
-        # with PRINT_LOCK:
-        #     print("[INIT] Peer %d is a seller" % self.peer_id)
-
         self.commodity = random.randint(FISH, BOAR)
         self.commodity_quantity = random.randint(1, MAX_ITEM_NUMBER)
         self.commodity_lock = Lock()
@@ -123,7 +93,6 @@ class Peer(thd.Thread):
 
 
     def _initiate_rpc_server(self):
-        
         server = SimpleXMLRPCServer(("localhost", PORT_START_NUM + self.peer_id),
                     allow_none=True, logRequests=False)
 
@@ -140,24 +109,19 @@ class Peer(thd.Thread):
     
     def _get_proxy(self, addr):
         proxy = xmlrpc.client.ServerProxy(addr)
+        
         try:
-            proxy.test()   # Call a fictive method.
+            proxy.test()   # call a fictive method.
         except xmlrpc.client.Fault:
-            # connected to the server and the method doesn't exist which is expected.
             pass
-        except socket.error:
-            # Not connected ; socket error mean that the service is unreachable.
+        except socket.error:    # service is unreachable.
             return None
             
-        # Just in case the method is registered in the XmlRPC server
         return proxy
 
-    # Helper Method: Send Lookup Request to the Neighbor.
     def _lookup(self, addr, product_name, hopcount, path):
-        # Lookup Neighbor.
         proxy = self._get_proxy(addr)
         if proxy != None:
-            # Just in case the method is registered in the XmlRPC server
             proxy.lookup(product_name, hopcount, path)
 
     def _reply(self, addr, seller_id, new_path):
@@ -198,8 +162,6 @@ class Peer(thd.Thread):
                 new_path = "%d-%s" % (self.peer_id, path)
                 thread = thd.Thread(target=self._lookup, args=(addr, product_name, hopcount-1, new_path))
                 thread.start()
-                # proxy = xmlrpc.client.ServerProxy(addr)
-                # proxy.lookup(product_name, hopcount-1, "%d-%s" % (self.peer_id, path))
                 with PRINT_LOCK:
                     print("[LOOKUP propagate] Peer %d: %d <- %s" % (self.peer_id, neighbor_id, new_path))
 
@@ -210,7 +172,7 @@ class Peer(thd.Thread):
         # 1. The reply request arrives to the client
         if len(path) == 0:
             with PRINT_LOCK:
-                print("[RECEIVE] Buyer %d receives a reply from seller %d" % (self.peer_id, seller_id))
+                print("[RECEIVE] Peer %d receives a reply from peer %d" % (self.peer_id, seller_id))
             self.candidate_sellers.append(seller_id)
             return True
         
@@ -219,11 +181,9 @@ class Peer(thd.Thread):
         next_neighbor_id = int(footprints[0])
         new_path = '' if len(footprints) == 1 else "-".join(footprints[1:])
         addr = ADDR % (PORT_START_NUM + next_neighbor_id)
-        # proxy = self._get_proxy(addr)
+
         thread = thd.Thread(target=self._reply, args=(addr, seller_id, new_path))
         thread.start()
-        # proxy = xmlrpc.client.ServerProxy(addr)
-        # proxy.reply(seller_id, new_path)
 
         with PRINT_LOCK:
             print("[REPLY propagate] Peer %d -> %d - %s" % (self.peer_id, next_neighbor_id, new_path))
@@ -253,7 +213,7 @@ class Peer(thd.Thread):
                         self.commodity = random.randint(FISH, BOAR)
 
         with PRINT_LOCK:
-            print("[UPDATE] Seller %d has %d of %s to sell" % (self.peer_id,
+            print("[UPDATE] Peer %d has %d of %s to sell" % (self.peer_id,
                 self.commodity_quantity, TO_ITEM_NAME[self.commodity]))
 
         return True
@@ -280,76 +240,51 @@ def generate_neighbor_map():
     return neighbor_map
 
 
-test_map1 = [
-    [False, True, False],
-    [True, False, True],
-    [False, True, False]
-]
-test_role1 = [BUYER, SELLER, SELLER]
-
-test_map2 = [
-    [False, True, False, True],
-    [True, False, True, False],
-    [False, True, False, True],
-    [True, False, True, False]
-]
-test_role2 = [BUYER, SELLER, SELLER, BOTH]
-
 if __name__ == "__main__":
     # Use one main thread to generate other threads that run as peers
-    buyer_num  = 0
-    seller_num = 0
     peers = []
 
     if DEBUG:
-        neighbor_map = test_map2
-
-        with PRINT_LOCK:
-            print('\\\\\\\\\\NEIGHBOR MAP://///')
-            for row in neighbor_map:
-                print(row)
-            print('\n')
-
-        for i in range(PEER_NUM):
-            neighbors = []
-            for j in range(PEER_NUM):
-                if neighbor_map[i][j]:
-                    neighbors.append(j)
-
-            peers.append(Peer(i, test_role2[i], neighbors))
-            peers[i].start()
-
+        neighbor_map = test_map
+        PEER_NUM = len(neighbor_map)
+        role = test_role
     else:
         neighbor_map = generate_neighbor_map()
 
-        with PRINT_LOCK:
-            print('\\\\\\\\\\NEIGHBOR MAP://///')
-            for row in neighbor_map:
-                print(row)
-            print('\n')
+        buyer_num  = 0
+        seller_num = 0
+        role = []
 
-        # ensure that there is always a buyer and a seller
         for i in range(PEER_NUM):
+            tmp = BUYER
             while True:
-                role = random.randint(BUYER, BOTH)
-                if role == BUYER and buyer_num <= MAX_BUYER_NUM:
+                tmp = random.randint(BUYER, BOTH)
+                if tmp == BUYER and buyer_num <= MAX_BUYER_NUM:
                     buyer_num += 1
                     break
-                elif role == SELLER and seller_num <= MAX_SELLER_NUM:
+                elif tmp == SELLER and seller_num <= MAX_SELLER_NUM:
                     seller_num += 1
                     break
-                elif role == BOTH:
+                elif tmp == BOTH:
                     buyer_num += 1
                     seller_num += 1
                     break
-            
-            neighbors = []
-            for j in range(PEER_NUM):
-                if neighbor_map[i][j]:
-                    neighbors.append(j)
+            role.append(tmp)
 
-            peers.append(Peer(i, role, neighbors))
-            peers[i].start()
+    with PRINT_LOCK:
+        print('\\\\\\\\\\  *NEIGHBOR MAP*  /////')
+        for row in neighbor_map:
+            print(row)
+        print('\n')
+
+    for i in range(PEER_NUM):
+        neighbors = []
+        for j in range(PEER_NUM):
+            if neighbor_map[i][j]:
+                neighbors.append(j)
+
+        peers.append(Peer(i, role[i], neighbors))
+        peers[i].start()
 
     # avoid closing main thread
     for peer in peers:
