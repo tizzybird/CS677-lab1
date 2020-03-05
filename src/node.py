@@ -1,13 +1,12 @@
 import xmlrpc
 from xmlrpc.server import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 
-# import json
 import socket
 import threading as thd
 from threading import Lock
 
 import random
-import time
+import time, datetime
 
 import logging
 
@@ -15,41 +14,6 @@ from define import *
 
 # logging.basicConfig(level=logging.INFO)
 PRINT_LOCK = Lock()
-"""
-logger  = logging.getLogger('xmlrpcserver')
-handler = logging.FileHandler('xmlrpcserver-%s.log' %
-    time.strftime("%Y%m%d-%H-%M-%S", time.localtime()), mode='w')
-formatter = logging.Formatter("%(asctime)s  %(levelname)s  %(message)s")
-handler.setFormatter(formatter)
-logger.addHandler(handler)
-logger.setLevel(logging.INFO)
-
-class LogHandler(SimpleXMLRPCRequestHandler):
-    def do_POST(self):
-        try:
-            peer_ip, port = self.client_address
-            # Log client IP and Port
-            logger.info('XMLRPCServer receives a request from client: %s:%s' % (peer_ip, port))
-            data = self.rfile.read(int(self.headers["content-length"]))
-            # Log client request
-            logger.info('Client request: \n%s\n' % data)
-            response = self.server._marshaled_dispatch(data, getattr(self, '_dispatch', None))
-        except: # This should only happen if the module is buggy
-            # internal error, report as HTTP server error
-            self.send_response(500)
-            self.end_headers()
-        else:
-            # got a valid XML RPC response
-            self.send_response(200)
-            self.send_header("Content-type", "text/xml")
-            self.send_header("Content-length", str(len(response)))
-            self.end_headers()
-            self.wfile.write(response)
-
-            # shut down the connection
-            self.wfile.flush()
-            self.connection.shutdown(1)
-"""
 
 class Peer(thd.Thread):
     def __init__(self, peer_id, role, neighbors):
@@ -58,11 +22,13 @@ class Peer(thd.Thread):
         self.peer_id = peer_id
         self.role = role
         self.neighbors = neighbors
+        self.latency = 0
+        self.request_count = 0
 
         with PRINT_LOCK:
             print("[Neighbor] Neighbors of peer %d: %s" % (self.peer_id, ','.join(str(x) for x in self.neighbors)))
             
-
+    # entry point
     def run(self):
         server = thd.Thread(target=self._initiate_rpc_server)
         server.start()
@@ -73,7 +39,15 @@ class Peer(thd.Thread):
         if self.role == BUYER or self.role == BOTH:
             self._initiate_buyer()
 
-        server.join()
+        while True:
+            try:
+                server.join()
+            except RuntimeError:
+                with PRINT_LOCK:
+                    print("The rpc server of peer %d is down, reinitiate..." % self.peer_id)
+                
+                server = thd.Thread(target=self._initiate_rpc_server)
+                server.start()
 
 
     def _initiate_buyer(self):
@@ -87,25 +61,25 @@ class Peer(thd.Thread):
                     self.target = random.randint(FISH, BOAR)
             
             with PRINT_LOCK:
-                print("[Generate] Peer %d plans to buy %s" % (self.peer_id, TO_ITEM_NAME[self.target]))
-        
+                print("[INIT] Peer %d plans to buy %s" % (self.peer_id, TO_ITEM_NAME[self.target]))
+            
             self.candidate_sellers = []
             for neighbor_id in self.neighbors:
-                # addr = ADDR % (PORT_START_NUM + neighbor_id)
                 proxy = self._get_proxy(neighbor_id)
                 if proxy != None:
-                    proxy.lookup(self.target, CLIENT_TIMEOUT, '%d' % self.peer_id)
+                    t_start = datetime.datetime.now()
+                    proxy.lookup(self.target, HOPCOUNT, '%d' % self.peer_id)
+                    t_stop = datetime.datetime.now()
+                    self.latency += (t_stop - t_start).total_seconds()
+                    self.request_count += 1
+                    self._report_performance()
 
-            with PRINT_LOCK:
-                print("[Rest] Peer %d waits for %d seconds" % (self.peer_id, CLIENT_TIMEOUT))
-            
+
             time.sleep(CLIENT_TIMEOUT)
             
             # transaction
             for seller_id in self.candidate_sellers:
-                # addr = ADDR % (PORT_START_NUM + seller_id)
                 proxy = self._get_proxy(seller_id)
-                # proxy = xmlrpc.client.ServerProxy(addr)
                 if proxy != None and proxy.buy(self.target):
                     with PRINT_LOCK:
                         print("[SUCCESS] Peer %d buys %s from peer %d" % (self.peer_id, TO_ITEM_NAME[self.target], seller_id))
@@ -118,22 +92,27 @@ class Peer(thd.Thread):
         self.commodity_lock = Lock()
 
         with PRINT_LOCK:
-            print("[Generate] Peer %d sells %d number of %s" %
+            print("[INIT] Peer %d sells %d number of %s" %
                 (self.peer_id, self.commodity_quantity, TO_ITEM_NAME[self.commodity]))
 
-    
-    # for testing
-    # def show_test_message(self, from_id):
-    #     with PRINT_LOCK:
-    #         print ("<------------- Peer %d receives a call from %s" % (self.peer_id, from_id))
 
-    #     return True
+    def _report_performance(self):
+        if self.request_count % 50 != 0:
+            return
+        
+        with PRINT_LOCK:
+            print('**** [PERFORMANCE] Average latency of peer %d: %f (sec/req) ****' %
+                (self.peer_id, (self.latency / self.request_count)))
 
 
     def _initiate_rpc_server(self):
-        host_ip = socket.gethostbyname(socket.gethostname())
+        if SCENARIO == 1:
+            host_ip = "localhost"
+        else:
+            host_ip = socket.gethostbyname(socket.gethostname())
+
         server = SimpleXMLRPCServer((host_ip, PORT_START_NUM + self.peer_id),
-                    allow_none=True, logRequests=True)
+                    allow_none=True, logRequests=False)
 
         server.register_function(self.lookup)
         server.register_function(self.reply)
@@ -145,9 +124,10 @@ class Peer(thd.Thread):
         # server.register_function(self.show_test_message)
         server.serve_forever()
 
-    
     def _get_proxy(self, peer_id):
-        if peer_id in MASTER_PEER_ID:
+        if SCENARIO == 1:
+            addr = ADDR % (PORT_START_NUM + peer_id)
+        elif peer_id in MASTER_PEER_ID:
             addr = MASTER_ADDR % (PORT_START_NUM + peer_id)
         else:
             addr = SLAVE_ADDR % (PORT_START_NUM + peer_id)
@@ -163,11 +143,13 @@ class Peer(thd.Thread):
             
         return proxy
 
+    # for thread to execute
     def _lookup(self, peer_id, product_name, hopcount, path):
         proxy = self._get_proxy(peer_id)
         if proxy != None:
             proxy.lookup(product_name, hopcount, path)
 
+    # for thread to execute
     def _reply(self, peer_id, seller_id, new_path):
         proxy = self._get_proxy(peer_id)
         if proxy != None:
@@ -182,8 +164,6 @@ class Peer(thd.Thread):
             from_neighbor_id = int(footprints[0])
             new_path = '' if len(footprints) == 1 else "-".join(footprints[1:])
 
-            # addr = ADDR % (PORT_START_NUM + from_neighbor_id)
-            # proxy = xmlrpc.client.ServerProxy(addr)
             proxy = self._get_proxy(from_neighbor_id)
             if proxy != None:
                 with PRINT_LOCK:
@@ -202,13 +182,17 @@ class Peer(thd.Thread):
         # propagate the request
         for neighbor_id in self.neighbors:
             if str(neighbor_id) not in footprints:
-                # addr = ADDR % (PORT_START_NUM + neighbor_id)
                 new_path = "%d-%s" % (self.peer_id, path)
+                t_start = datetime.datetime.now()
                 thread = thd.Thread(target=self._lookup,
                     args=(neighbor_id, product_name, hopcount-1, new_path))
                 thread.start()
+                t_stop = datetime.datetime.now()
+                self.latency += (t_stop - t_start).total_seconds()
+                self.request_count += 1
+                self._report_performance()
                 with PRINT_LOCK:
-                    print("[LOOKUP propagate] Peer %d: %d <- %s" % (self.peer_id, neighbor_id, new_path))
+                    print("[LOOKUP propagate] Peer %d: (next) %d <- %s (path)" % (self.peer_id, neighbor_id, new_path))
 
         return True
 
@@ -216,22 +200,28 @@ class Peer(thd.Thread):
     def reply(self, seller_id, path):
         # 1. The reply request arrives to the client
         if len(path) == 0:
+            self.candidate_sellers.append(seller_id)
+
             with PRINT_LOCK:
                 print("[RECEIVE] Peer %d receives a reply from peer %d" % (self.peer_id, seller_id))
-            self.candidate_sellers.append(seller_id)
+            
             return True
         
         # 2. Otherwise, propagate the reply request
         footprints = path.split('-')
         next_neighbor_id = int(footprints[0])
         new_path = '' if len(footprints) == 1 else "-".join(footprints[1:])
-        # addr = ADDR % (PORT_START_NUM + next_neighbor_id)
 
+        t_start = datetime.datetime.now()
         thread = thd.Thread(target=self._reply, args=(next_neighbor_id, seller_id, new_path))
         thread.start()
+        t_stop = datetime.datetime.now()
+        self.latency += (t_stop - t_start).total_seconds()
+        self.request_count += 1
+        self._report_performance()
 
         with PRINT_LOCK:
-            print("[REPLY propagate] Peer %d -> %d - %s" % (self.peer_id, next_neighbor_id, new_path))
+            print("[REPLY propagate] from peer %d -> %d -%s (path)" % (self.peer_id, next_neighbor_id, new_path))
 
         return True
 
@@ -258,7 +248,7 @@ class Peer(thd.Thread):
                         self.commodity = random.randint(FISH, BOAR)
 
         with PRINT_LOCK:
-            print("[UPDATE] Peer %d has %d of %s to sell" % (self.peer_id,
+            print("[UPDATE] Peer %d has %d %s to sell" % (self.peer_id,
                 self.commodity_quantity, TO_ITEM_NAME[self.commodity]))
 
         return True
@@ -287,6 +277,12 @@ def generate_neighbor_map():
 
 def one_machine_scenario():
     # Use one main thread to generate other threads that run as peers
+    neighbor_map = test_map
+    PEER_NUM = len(neighbor_map)
+    role = test_role
+
+    """
+    # DEPRECATED
     if DEBUG:
         neighbor_map = test_map
         PEER_NUM = len(neighbor_map)
@@ -312,7 +308,8 @@ def one_machine_scenario():
                     seller_num += 1
                     break
             role.append(tmp)
-
+    """
+    
     with PRINT_LOCK:
         print('\\\\\\\\\\  *NEIGHBOR MAP*  /////')
         for row in neighbor_map:
@@ -336,34 +333,36 @@ def one_machine_scenario():
 
 if __name__ == "__main__":
     # 1. For the scenario that test on a single machine
-    # one_machine_scenario()
+    if SCENARIO == 1:
+        one_machine_scenario()
 
     # 2. For the scenario that test on two machines
-    # only support self-defined neighbor map
-    neighbor_map = test_map
-    PEER_NUM = len(neighbor_map)
-    role = test_role
-    host_ip = socket.gethostbyname(socket.gethostname())
+    if SCENARIO == 2:
+        # only support self-defined neighbor map
+        neighbor_map = test_map
+        PEER_NUM = len(neighbor_map)
+        role = test_role
+        host_ip = socket.gethostbyname(socket.gethostname())
 
-    with PRINT_LOCK:
-        print('Node is running on: %s\n' % host_ip)
-        print('\\\\\\\\\\  *NEIGHBOR MAP*  /////')
-        for row in neighbor_map:
-            print(row)
-        print('\n')
+        with PRINT_LOCK:
+            print('Node is running on: %s\n' % host_ip)
+            print('\\\\\\\\\\  *NEIGHBOR MAP*  /////')
+            for row in neighbor_map:
+                print(row)
+            print('\n')
 
-    curr_machine_peer_id = MASTER_PEER_ID if host_ip == MASTER_IP else SLAVE_PEER_ID
-    peers = []
-    for peer_id in curr_machine_peer_id:
-        neighbors = []
-        for j in range(PEER_NUM):
-            if neighbor_map[peer_id][j]:
-                neighbors.append(j)
+        curr_machine_peer_id = MASTER_PEER_ID if host_ip == MASTER_IP else SLAVE_PEER_ID
+        peers = []
+        for peer_id in curr_machine_peer_id:
+            neighbors = []
+            for j in range(PEER_NUM):
+                if neighbor_map[peer_id][j]:
+                    neighbors.append(j)
 
-        peer = Peer(peer_id, role[peer_id], neighbors)
-        peers.append(peer)
-        peer.start()
+            peer = Peer(peer_id, role[peer_id], neighbors)
+            peers.append(peer)
+            peer.start()
 
-    # avoid closing main thread
-    for peer in peers:
-        peer.join()
+        # avoid closing main thread
+        for peer in peers:
+            peer.join()
