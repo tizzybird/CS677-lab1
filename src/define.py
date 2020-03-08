@@ -16,10 +16,6 @@ TO_ITEM_NAME = {
 # setting True omits NUM_OF_PEER_ON_EACH_MACHINE and MACHINES
 LOCAL_DEPLOY = False
 
-# default port to start
-# the port number of each RPC peer server is (PORT_START_NUM + peer_id)
-PORT_START_NUM = 10070
-
 # number of peers to be initialized on a machine
 # Note that the number of peers on each machine = PEER_NUM / '# of MACHINES'
 MACHINES = [{
@@ -37,9 +33,15 @@ MAX_BUYER_NUM  = int(PEER_NUM/2) + 1
 MAX_SELLER_NUM = int(PEER_NUM/2) + 1
 
 # optional
-MAX_ITEM_NUMBER = 10    # the maximum quantity a seller can sell
-CLIENT_TIMEOUT = 4      # waiting time for a buyer to receive responses from sellers
-HOPCOUNT = 3            # hopcount
+# default port to start a RPC server
+# the port number of each RPC peer server is (PORT_START_NUM + peer_id)
+PORT_START_NUM = 10070
+# the maximum quantity a seller can sell
+MAX_ITEM_NUMBER = 10
+# waiting time for a buyer to receive responses from sellers
+CLIENT_TIMEOUT = 4
+# hopcount
+HOPCOUNT = 3
 
 ######## SELF-DEFINED MAP & ROLE ########
 # if you would like to initialize peers by using TEST_ROLE and TEST_MAP,
