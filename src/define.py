@@ -1,5 +1,3 @@
-# DEBUG = True
-
 BUYER  = 1
 SELLER = 2
 BOTH   = 3
@@ -13,57 +11,55 @@ TO_ITEM_NAME = {
     BOAR: 'Boar'
 }
 
-# freezed
+############ CONGIGURABLE ############
+# set True if you want to deploy locally
+# setting True omits NUM_OF_PEER_ON_EACH_MACHINE and MACHINES
+LOCAL_DEPLOY = False
+
+# default port to start
+# the port number of each RPC peer server is (PORT_START_NUM + peer_id)
+PORT_START_NUM = 10070
+
+# number of peers to be initialized on a machine
+# Note that the number of peers on each machine = PEER_NUM / '# of MACHINES'
+MACHINES = [{
+    # default: elnux2
+    'ip': '128.119.243.164'
+}, {
+    # defualt: elnux7
+    'ip': '128.119.243.175'
+}]
+
+# number of total peers
+# PEER_NUM would be updated to len(TEST_ROLE) if DEBUG is True
 PEER_NUM = 6
 MAX_BUYER_NUM  = int(PEER_NUM/2) + 1
 MAX_SELLER_NUM = int(PEER_NUM/2) + 1
 
-######## CONGIGURE THIS PART !!!!!!!!!! ########
-# 1 for using only a machine
-# 2 for using 2 machines
-# other values are not supported
-SCENARIO = 2
-PORT_START_NUM = 10070
-
-# >>>>> For one_machine_scenario()
-ADDR = "http://localhost:%d/"
-
-
-# >>>>> For two_machine_scenario
-MASTER_IP = "128.119.243.164" # elnux2
-MASTER_ADDR = "http://128.119.243.164:%d" # elnux2
-SLAVE_ADDR  = "http://128.119.243.175:%d" # elnux7
-MASTER_PEER_ID = [0, 1]
-SLAVE_PEER_ID  = [2, 3]
-
-
-# >>>>> optional
-MAX_ITEM_NUMBER = 10
-CLIENT_TIMEOUT = 3
-HOPCOUNT = 3
+# optional
+MAX_ITEM_NUMBER = 10    # the maximum quantity a seller can sell
+CLIENT_TIMEOUT = 4      # waiting time for a buyer to receive responses from sellers
+HOPCOUNT = 3            # hopcount
 
 ######## SELF-DEFINED MAP & ROLE ########
-# test_role = [BUYER, SELLER, SELLER]
-# test_map = [
-#     [False, True, False],
-#     [True, False, True],
-#     [False, True, False]
+# if you would like to initialize peers by using TEST_ROLE and TEST_MAP,
+# please set DEBUG to True
+DEBUG = True
+
+# TEST_ROLE = [BUYER, SELLER, SELLER, BOTH]
+# TEST_MAP  = [
+#     [False, True, False, True],
+#     [True, False, True, True],
+#     [False, True, False, True],
+#     [True, True, True, False]
 # ]
 
-test_role = [BUYER, SELLER, SELLER, BOTH]
-test_map = [
-    [False, True, False, True],
-    [True, False, True, True],
-    [False, True, False, True],
-    [True, True, True, False]
+TEST_ROLE = [BUYER, BOTH, SELLER, SELLER, BOTH, BUYER]
+TEST_MAP  = [
+    [False, True, False, True, True, False],
+    [True, False, True, False, True, True],
+    [False, True, False, True, False, False],
+    [True, False, True, False, False, False],
+    [True, True, False, False, False, True],
+    [False, True, False, False, True, False]
 ]
-
-# test_role = [BUYER, BOTH, SELLER, SELLER, BOTH, BUYER]
-# test_map = [
-#     [False, True, False, True, True, False],
-#     [True, False, True, False, True, True],
-#     [False, True, False, True, False, False],
-#     [True, False, True, False, False, False],
-#     [True, True, False, False, False, True],
-#     [False, True, False, False, True, False]
-# ]
