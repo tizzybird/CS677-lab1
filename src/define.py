@@ -14,7 +14,7 @@ TO_ITEM_NAME = {
 ############ CONGIGURABLE ############
 # set True if you want to deploy locally
 # setting True omits NUM_OF_PEER_ON_EACH_MACHINE and MACHINES
-LOCAL_DEPLOY = False
+LOCAL_DEPLOY = True
 
 # number of peers to be initialized on a machine
 # Note that the number of peers on each machine = PEER_NUM / '# of MACHINES'
@@ -48,6 +48,15 @@ HOPCOUNT = 3
 # please set DEBUG to True
 DEBUG = True
 
+# case 1
+# TEST_ROLE = [BUYER, SELLER, BOTH]
+# TEST_MAP  = [
+#     [False, True, False],
+#     [True, False, True],
+#     [False, True, False]
+# ]
+
+# case 2
 # TEST_ROLE = [BUYER, SELLER, SELLER, BOTH]
 # TEST_MAP  = [
 #     [False, True, False, True],
@@ -56,12 +65,53 @@ DEBUG = True
 #     [True, True, True, False]
 # ]
 
-TEST_ROLE = [BUYER, BOTH, SELLER, SELLER, BOTH, BUYER]
+# case 3
+# TEST_ROLE = [BUYER, BOTH, SELLER, BOTH]
+# TEST_MAP  = [
+#     [False, True, False, True],
+#     [True, False, True, True],
+#     [False, True, False, True],
+#     [True, True, True, False]
+# ]
+
+# case 4 fully connected
+TEST_ROLE = [BOTH, BOTH, BOTH, BOTH]
 TEST_MAP  = [
-    [False, True, False, True, True, False],
-    [True, False, True, False, True, True],
-    [False, True, False, True, False, False],
-    [True, False, True, False, False, False],
-    [True, True, False, False, False, True],
-    [False, True, False, False, True, False]
+    [False, True, True, True],
+    [True, False, True, True],
+    [True, True, False, True],
+    [True, True, True, False]
 ]
+
+# case 5
+# TEST_ROLE = [BUYER, BOTH, SELLER, SELLER, BOTH, BUYER]
+# TEST_MAP  = [
+#     [False, True, False, True, True, False],
+#     [True, False, True, False, True, True],
+#     [False, True, False, True, False, False],
+#     [True, False, True, False, False, False],
+#     [True, True, False, False, False, True],
+#     [False, True, False, False, True, False]
+# ]
+
+# case 6
+# TEST_ROLE = [BUYER, SELLER, BOTH, BOTH, BOTH, BOTH]
+# TEST_MAP  = [
+#     [False, True, False, True, True, False],
+#     [True, False, True, False, True, True],
+#     [False, True, False, True, False, False],
+#     [True, False, True, False, False, False],
+#     [True, True, False, False, False, True],
+#     [False, True, False, False, True, False]
+# ]
+
+# case 7 fully connected
+# TEST_ROLE = [BOTH, BOTH, BOTH, BOTH, BOTH, BOTH]
+# TEST_MAP  = [
+#     [False, True, True, True, True, True],
+#     [True, False, True, True, True, True],
+#     [True, True, False, True, True, True],
+#     [True, True, True, False, True, True],
+#     [True, True, True, True, False, True],
+#     [True, True, True, True, True, False]
+# ]
